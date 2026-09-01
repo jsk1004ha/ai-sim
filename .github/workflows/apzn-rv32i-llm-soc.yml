@@ -1,0 +1,71 @@
+name: APZN RV32I CPU and TinyLLM SoC physical FPGA build
+
+on:
+  push:
+    branches:
+      - apzn-rv32i-core-ulx3s-20260901
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-and-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: rv32-llm-soc
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install RISC-V and FPGA EDA tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            make python3 \
+            gcc-riscv64-unknown-elf binutils-riscv64-unknown-elf \
+            iverilog verilator yosys nextpnr-ecp5 fpga-trellis
+
+      - name: Record tool versions
+        run: make tool-versions
+
+      - name: Compile APZN RV32I firmware and directed ISA self-test
+        run: make firmware
+
+      - name: Verilator lint project-owned CPU and SoC
+        run: make lint
+
+      - name: Execute CPU firmware and accelerator RTL simulation
+        run: make sim
+
+      - name: Yosys ECP5 synthesis
+        run: make synth
+
+      - name: nextpnr placement routing and post-route timing
+        run: make pnr
+
+      - name: Generate ULX3S bitstream, manifest, and package
+        run: make package
+
+      - name: Upload source, firmware, bitstream, netlist, and real logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apzn-rv32i-llm-soc-ulx3s-85f
+          path: |
+            rv32-llm-soc/README.md
+            rv32-llm-soc/README.ko.md
+            rv32-llm-soc/Makefile
+            rv32-llm-soc/docs/
+            rv32-llm-soc/rtl/
+            rv32-llm-soc/firmware/
+            rv32-llm-soc/tb/
+            rv32-llm-soc/constraints/
+            rv32-llm-soc/synth/
+            rv32-llm-soc/scripts/
+            rv32-llm-soc/results/
+            rv32-llm-soc/build/
+          if-no-files-found: warn
