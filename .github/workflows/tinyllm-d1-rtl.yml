@@ -24,8 +24,20 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y iverilog yosys
-          iverilog -V | head -n 2
-          yosys -V
+          mkdir -p results
+          {
+            echo "github_sha=${GITHUB_SHA}"
+            echo "github_run_id=${GITHUB_RUN_ID}"
+            echo "runner_os=${RUNNER_OS}"
+            echo "runner_arch=${RUNNER_ARCH}"
+            echo "utc_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            uname -a
+            python3 --version
+            iverilog -V
+            vvp -V
+            yosys -V
+          } > results/ci_environment.txt 2>&1
+          cat results/ci_environment.txt
 
       - name: Compile and run self-checking RTL simulation
         run: make sim
@@ -36,12 +48,16 @@ jobs:
       - name: Xilinx 7-series technology mapping
         run: make synth-xilinx
 
-      - name: Upload real tool logs and netlists
+      - name: Upload source, real tool logs, and netlists
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: tinyllm-d1-hardware-evidence
           path: |
+            tinyllm-d1-hardware/rtl/
+            tinyllm-d1-hardware/tb/
+            tinyllm-d1-hardware/synthesis/
+            tinyllm-d1-hardware/Makefile
             tinyllm-d1-hardware/results/
             tinyllm-d1-hardware/build/
           if-no-files-found: warn
