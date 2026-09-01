@@ -27,8 +27,8 @@ def sha256(path: Path) -> str | None:
     if not path.exists():
         return None
     h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
 
@@ -92,8 +92,6 @@ def parse_pnr(text: str) -> dict[str, object]:
         "timing_reports_in_log_order": timing_reports,
     }
     if timing_reports:
-        # nextpnr can print a pre-route estimate and a final post-route report.
-        # The final report is authoritative for the emitted routed configuration.
         final = timing_reports[-1]
         out["final_timing"] = final
         out["max_frequency_mhz"] = final["max_frequency_mhz"]
@@ -118,12 +116,14 @@ def main() -> None:
         else ""
     )
     sim_cycle_match = re.search(
-        r"PASS: RV32 firmware completed INT8 and INT4 accelerator tests at cycle (\d+)",
+        r"PASS: APZN RV32I core completed ISA, INT8 and INT4 accelerator tests "
+        r"at cycle (\d+) retired=(\d+)",
         sim_log,
     )
 
+    bitstream = BUILD / "apzn_rv32i_llm_soc_ulx3s_85f.bit"
     manifest = {
-        "design": "RV32 TinyLLM SoC for ULX3S-85F",
+        "design": "APZN-RV32I-MC1 TinyLLM SoC for ULX3S-85F",
         "provenance": {
             "git_commit": os.environ.get("GITHUB_SHA"),
             "git_branch": os.environ.get("GITHUB_REF_NAME"),
@@ -135,9 +135,26 @@ def main() -> None:
             "clock_mhz": 25,
         },
         "cpu": {
-            "core": "PicoRV32",
+            "core": "APZN-RV32I-MC1",
+            "ownership": "Project-owned clean-room RTL; no third-party CPU core instantiated",
             "isa": "RV32I",
-            "pinned_commit": "a473fc8fca393771d83b0ffcf0b14db3393339d8",
+            "microarchitecture": {
+                "issue_width": 1,
+                "in_order": True,
+                "pipeline": "non-pipelined multi-cycle",
+                "states": ["FETCH", "EXECUTE", "MEMORY", "TRAP"],
+                "outstanding_memory_transactions": 1,
+                "register_file": "32 x 32-bit, x0 hard-wired to zero",
+                "memory_port": "unified ready/valid instruction and data port",
+            },
+            "implemented_groups": [
+                "LUI", "AUIPC", "JAL", "JALR",
+                "BEQ", "BNE", "BLT", "BGE", "BLTU", "BGEU",
+                "LB", "LH", "LW", "LBU", "LHU", "SB", "SH", "SW",
+                "ADDI", "SLTI", "SLTIU", "XORI", "ORI", "ANDI",
+                "SLLI", "SRLI", "SRAI", "ADD", "SUB", "SLL", "SLT",
+                "SLTU", "XOR", "SRL", "SRA", "OR", "AND", "FENCE"
+            ],
             "memory_bytes": 16384,
         },
         "accelerator": {
@@ -151,30 +168,34 @@ def main() -> None:
                 "int8_expected_results": [-20, -15],
                 "int4_expected_results": [-53, 35],
                 "expected_macs_per_test": 16,
-                "expected_accelerator_cycles_per_test": 4,
-            },
+                "expected_accelerator_cycles_per_test": 4
+            }
         },
         "verification": {
-            "cpu_firmware_simulation_pass": (
-                "PASS: RV32 firmware completed INT8 and INT4 accelerator tests"
+            "directed_rv32i_assembly_selftest_in_firmware": True,
+            "cpu_and_accelerator_simulation_pass": (
+                "PASS: APZN RV32I core completed ISA, INT8 and INT4 accelerator tests"
                 in sim_log
             ),
             "simulation_completion_cycle": (
                 int(sim_cycle_match.group(1)) if sim_cycle_match else None
             ),
-            "simulation_log_sha256": sha256(BUILD / "simulation.log"),
+            "retired_instructions_at_completion": (
+                int(sim_cycle_match.group(2)) if sim_cycle_match else None
+            ),
+            "simulation_log_sha256": sha256(BUILD / "simulation.log")
         },
         "physical_implementation": parse_pnr(pnr_log),
         "artifacts": {
-            "bitstream": "build/rv32_llm_soc_ulx3s_85f.bit",
-            "bitstream_bytes": file_size(BUILD / "rv32_llm_soc_ulx3s_85f.bit"),
-            "bitstream_sha256": sha256(BUILD / "rv32_llm_soc_ulx3s_85f.bit"),
+            "bitstream": str(bitstream.relative_to(ROOT)),
+            "bitstream_bytes": file_size(bitstream),
+            "bitstream_sha256": sha256(bitstream),
             "placed_routed_config_sha256": sha256(BUILD / "ulx3s.config"),
             "netlist_json_sha256": sha256(BUILD / "ulx3s.json"),
             "firmware_elf_bytes": file_size(BUILD / "firmware.elf"),
             "firmware_elf_sha256": sha256(BUILD / "firmware.elf"),
             "firmware_binary_bytes": file_size(BUILD / "firmware.bin"),
-            "firmware_binary_sha256": sha256(BUILD / "firmware.bin"),
+            "firmware_binary_sha256": sha256(BUILD / "firmware.bin")
         },
         "tool_versions": {
             "yosys": cmd(["yosys", "-V"]),
@@ -184,17 +205,18 @@ def main() -> None:
             "verilator": cmd(["verilator", "--version"]),
             "riscv_gcc": cmd(
                 ["riscv64-unknown-elf-gcc", "--version"]
-            ).splitlines()[0],
+            ).splitlines()[0]
         },
         "honesty": {
             "fpga_board_programmed_in_ci": False,
             "silicon_tapeout_completed": False,
             "claim": (
-                "The bitstream is generated from RISC-V firmware, synthesizable RTL, "
-                "ECP5 synthesis, placement, routing, and static timing analysis. "
-                "Physical board execution requires programming an ULX3S-85F."
-            ),
-        },
+                "The project-owned CPU core and accelerator are executed in RTL "
+                "simulation with real RV32I firmware, then synthesized, placed, "
+                "routed and packed into an ULX3S bitstream. Physical board execution "
+                "still requires programming an ULX3S-85F."
+            )
+        }
     }
     (RESULTS / "build_manifest.json").write_text(
         json.dumps(manifest, indent=2), encoding="utf-8"
