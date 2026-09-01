@@ -8,13 +8,13 @@ RTL := third_party/picorv32.v rtl/mmio_llm_accel.sv rtl/uart_tx.sv rtl/rv32_llm_
 CFLAGS := -march=rv32i -mabi=ilp32 -Os -g -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -mstrict-align -Wall -Wextra
 LDFLAGS := -nostdlib -nostartfiles -Wl,--gc-sections -Wl,-Map,build/firmware.map -T firmware/link.ld
 
-.PHONY: all fetch-cpu firmware lint sim synth pnr bitstream manifest package clean tool-versions
+.PHONY: all dirs fetch-cpu firmware lint sim synth pnr bitstream manifest package clean tool-versions
 all: sim bitstream manifest
 
-build:
+dirs:
 	mkdir -p build results third_party
 
-fetch-cpu: | build
+fetch-cpu: | dirs
 	@if [ ! -s third_party/picorv32.v ]; then \
 		curl -fsSL https://raw.githubusercontent.com/YosysHQ/picorv32/$(PICORV32_COMMIT)/picorv32.v -o third_party/picorv32.v; \
 		curl -fsSL https://raw.githubusercontent.com/YosysHQ/picorv32/$(PICORV32_COMMIT)/COPYING -o third_party/PICORV32_LICENSE; \
@@ -54,7 +54,7 @@ bitstream: pnr
 manifest: bitstream sim
 	python3 scripts/summarize.py | tee build/manifest_stdout.json
 
-tool-versions: | build
+tool-versions: | dirs
 	{ \
 		echo "date_utc=$$(date -u +%FT%TZ)"; \
 		uname -a; \
