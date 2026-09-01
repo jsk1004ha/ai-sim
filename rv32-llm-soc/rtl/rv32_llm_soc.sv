@@ -31,7 +31,9 @@ module rv32_llm_soc #(
     wire [31:0] cpu_debug_pc;
     wire [31:0] cpu_debug_insn;
 
-    reg [31:0] memory [0:MEM_WORDS-1];
+    // Force the 16 KiB firmware/data store into ECP5 DP16KD block RAM rather
+    // than spending tens of thousands of LUTs on distributed memory.
+    (* ram_style = "block" *) reg [31:0] memory [0:MEM_WORDS-1];
     reg [7:0] led_reg;
     reg uart_valid;
     reg [7:0] uart_data_reg;
