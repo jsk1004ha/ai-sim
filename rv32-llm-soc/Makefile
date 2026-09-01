@@ -3,7 +3,7 @@ RISCV_PREFIX ?= riscv64-unknown-elf-
 RISCV_GCC := $(RISCV_PREFIX)gcc
 RISCV_OBJCOPY := $(RISCV_PREFIX)objcopy
 RISCV_OBJDUMP := $(RISCV_PREFIX)objdump
-RTL := rtl/cpu/apzn_rv32i_core.sv rtl/mmio_llm_accel.sv rtl/uart_tx.sv rtl/rv32_llm_soc.sv
+RTL := rtl/cpu/apzn_rv32i_core.sv rtl/memory/soc_bram32.sv rtl/mmio_llm_accel.sv rtl/uart_tx.sv rtl/rv32_llm_soc.sv
 CFLAGS := -march=rv32i -mabi=ilp32 -Os -g -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -mstrict-align -Wall -Wextra
 LDFLAGS := -nostdlib -nostartfiles -Wl,--gc-sections -Wl,-Map,build/firmware.map -T firmware/link.ld
 
@@ -19,7 +19,8 @@ firmware: | dirs
 		-o build/firmware.elf
 	$(RISCV_OBJCOPY) -O binary build/firmware.elf build/firmware.bin
 	$(RISCV_OBJDUMP) -d -S build/firmware.elf > build/firmware.disasm
-	python3 scripts/bin2hex.py build/firmware.bin build/firmware.hex --words 4096
+	python3 scripts/bin2hex.py build/firmware.bin build/firmware.hex --words 4096 \
+		--lane-prefix build/firmware_lane
 	@test $$(stat -c%s build/firmware.bin) -le 16384
 	@! grep -Eq '\<(mul|mulh|mulhsu|mulhu|div|divu|rem|remu)\>' build/firmware.disasm
 
@@ -64,8 +65,9 @@ tool-versions: | dirs
 package: manifest tool-versions
 	tar --exclude='build/rv32_llm_soc.vcd' -czf build/apzn-rv32i-llm-soc-ulx3s-build.tar.gz \
 		README.md README.ko.md Makefile docs rtl firmware tb constraints synth scripts results \
-		build/firmware.elf build/firmware.bin build/firmware.hex build/firmware.disasm build/firmware.map \
-		build/simulation.log build/yosys.log build/nextpnr.log build/ulx3s.json build/ulx3s.config \
+		build/firmware.elf build/firmware.bin build/firmware.hex build/firmware_lane?.hex \
+		build/firmware.disasm build/firmware.map build/simulation.log build/yosys.log \
+		build/nextpnr.log build/ulx3s.json build/ulx3s.config \
 		build/apzn_rv32i_llm_soc_ulx3s_85f.bit build/apzn_rv32i_llm_soc_ulx3s_85f.bit.sha256 build/tool_versions.txt
 	sha256sum build/apzn-rv32i-llm-soc-ulx3s-build.tar.gz > build/apzn-rv32i-llm-soc-ulx3s-build.tar.gz.sha256
 

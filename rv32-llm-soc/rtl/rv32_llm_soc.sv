@@ -1,7 +1,10 @@
 `default_nettype none
 module rv32_llm_soc #(
     parameter integer MEM_WORDS = 4096,
-    parameter         MEM_INIT_FILE = "build/firmware.hex",
+    parameter MEM_INIT0_FILE = "build/firmware_lane0.hex",
+    parameter MEM_INIT1_FILE = "build/firmware_lane1.hex",
+    parameter MEM_INIT2_FILE = "build/firmware_lane2.hex",
+    parameter MEM_INIT3_FILE = "build/firmware_lane3.hex",
     parameter integer CLK_HZ = 25_000_000
 ) (
     input  wire       clk,
@@ -13,6 +16,7 @@ module rv32_llm_soc #(
     output wire       accel_done
 );
     localparam integer MEM_BYTES = MEM_WORDS*4;
+    localparam integer MEM_AW = $clog2(MEM_WORDS);
     localparam [31:0] ACCEL_BASE = 32'h1000_0000;
     localparam [31:0] LED_ADDR   = 32'h2000_0000;
     localparam [31:0] UART_DATA  = 32'h2000_0004;
@@ -24,35 +28,33 @@ module rv32_llm_soc #(
     wire [31:0] mem_addr;
     wire [31:0] mem_wdata;
     wire [3:0]  mem_wstrb;
-    reg  [31:0] mem_rdata;
+    wire [31:0] mem_rdata;
 
     wire [31:0] cpu_cycle_count;
     wire [31:0] cpu_retired_count;
     wire [31:0] cpu_debug_pc;
     wire [31:0] cpu_debug_insn;
 
-    // Synchronous read plus mutually exclusive byte writes matches the ECP5
-    // DP16KD inference template. Store responses intentionally do not read RAM.
-    (* ram_style = "block" *) reg [31:0] memory [0:MEM_WORDS-1];
+    reg [31:0] peripheral_rdata;
     reg [7:0] led_reg;
     reg uart_valid;
     reg [7:0] uart_data_reg;
     wire uart_ready;
 
+    wire ram_sel = (mem_addr < MEM_BYTES);
+    wire bus_accept = mem_valid && !mem_ready;
+    wire ram_accept = bus_accept && ram_sel;
+    wire ram_read_en = ram_accept && !(|mem_wstrb);
+    wire ram_write_en = ram_accept && (|mem_wstrb);
+    wire [31:0] ram_rdata;
+
     wire accel_sel = (mem_addr[31:8] == ACCEL_BASE[31:8]);
-    wire accel_write = mem_valid && !mem_ready && accel_sel && (|mem_wstrb);
-    wire accel_read  = mem_valid && !mem_ready && accel_sel && !(|mem_wstrb);
+    wire accel_write = bus_accept && accel_sel && (|mem_wstrb);
+    wire accel_read  = bus_accept && accel_sel && !(|mem_wstrb);
     wire [31:0] accel_rdata;
     wire accel_irq;
     wire [31:0] accel_cycles;
     wire [31:0] accel_macs;
-
-    integer i;
-    initial begin
-        for (i = 0; i < MEM_WORDS; i = i + 1)
-            memory[i] = 32'h0000_0013;
-        $readmemh(MEM_INIT_FILE, memory);
-    end
 
     apzn_rv32i_core #(
         .RESET_PC(32'h0000_0000)
@@ -71,6 +73,22 @@ module rv32_llm_soc #(
         .retired_count(cpu_retired_count),
         .debug_pc(cpu_debug_pc),
         .debug_insn(cpu_debug_insn)
+    );
+
+    soc_bram32 #(
+        .WORDS(MEM_WORDS),
+        .INIT0_FILE(MEM_INIT0_FILE),
+        .INIT1_FILE(MEM_INIT1_FILE),
+        .INIT2_FILE(MEM_INIT2_FILE),
+        .INIT3_FILE(MEM_INIT3_FILE)
+    ) system_memory (
+        .clk(clk),
+        .read_en(ram_read_en),
+        .write_en(ram_write_en),
+        .word_addr(mem_addr[MEM_AW+1:2]),
+        .write_data(mem_wdata),
+        .write_strobe(mem_wstrb),
+        .read_data(ram_rdata)
     );
 
     mmio_llm_accel #(
@@ -101,7 +119,7 @@ module rv32_llm_soc #(
     always @(posedge clk) begin
         if (!resetn) begin
             mem_ready <= 1'b0;
-            mem_rdata <= 32'd0;
+            peripheral_rdata <= 32'd0;
             led_reg <= 8'd0;
             uart_valid <= 1'b0;
             uart_data_reg <= 8'd0;
@@ -109,32 +127,24 @@ module rv32_llm_soc #(
             mem_ready <= 1'b0;
             uart_valid <= 1'b0;
 
-            if (mem_valid && !mem_ready) begin
-                if (mem_addr < MEM_BYTES) begin
+            if (bus_accept) begin
+                if (ram_sel) begin
                     mem_ready <= 1'b1;
-                    if (!(|mem_wstrb)) begin
-                        mem_rdata <= memory[mem_addr[$clog2(MEM_BYTES)-1:2]];
-                    end else begin
-                        if (mem_wstrb[0]) memory[mem_addr[$clog2(MEM_BYTES)-1:2]][7:0]   <= mem_wdata[7:0];
-                        if (mem_wstrb[1]) memory[mem_addr[$clog2(MEM_BYTES)-1:2]][15:8]  <= mem_wdata[15:8];
-                        if (mem_wstrb[2]) memory[mem_addr[$clog2(MEM_BYTES)-1:2]][23:16] <= mem_wdata[23:16];
-                        if (mem_wstrb[3]) memory[mem_addr[$clog2(MEM_BYTES)-1:2]][31:24] <= mem_wdata[31:24];
-                    end
                 end else if (accel_sel) begin
                     mem_ready <= 1'b1;
-                    mem_rdata <= accel_rdata;
+                    peripheral_rdata <= accel_rdata;
                 end else if (mem_addr == LED_ADDR) begin
                     mem_ready <= 1'b1;
-                    mem_rdata <= {24'd0, led_reg};
+                    peripheral_rdata <= {24'd0, led_reg};
                     if (|mem_wstrb)
                         led_reg <= mem_wdata[7:0];
                 end else if (mem_addr == UART_STAT) begin
                     mem_ready <= 1'b1;
-                    mem_rdata <= {31'd0, uart_ready};
+                    peripheral_rdata <= {31'd0, uart_ready};
                 end else if (mem_addr == UART_DATA) begin
                     if (!(|mem_wstrb) || uart_ready) begin
                         mem_ready <= 1'b1;
-                        mem_rdata <= 32'd0;
+                        peripheral_rdata <= 32'd0;
                         if (|mem_wstrb) begin
                             uart_data_reg <= mem_wdata[7:0];
                             uart_valid <= 1'b1;
@@ -142,12 +152,13 @@ module rv32_llm_soc #(
                     end
                 end else begin
                     mem_ready <= 1'b1;
-                    mem_rdata <= 32'hBAD0_0000;
+                    peripheral_rdata <= 32'hBAD0_0000;
                 end
             end
         end
     end
 
+    assign mem_rdata = ram_sel ? ram_rdata : peripheral_rdata;
     assign led = led_reg;
 endmodule
 `default_nettype wire

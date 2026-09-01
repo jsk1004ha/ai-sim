@@ -18,7 +18,10 @@ module ulx3s_top (
 
     rv32_llm_soc #(
         .MEM_WORDS(4096),
-        .MEM_INIT_FILE("build/firmware.hex"),
+        .MEM_INIT0_FILE("build/firmware_lane0.hex"),
+        .MEM_INIT1_FILE("build/firmware_lane1.hex"),
+        .MEM_INIT2_FILE("build/firmware_lane2.hex"),
+        .MEM_INIT3_FILE("build/firmware_lane3.hex"),
         .CLK_HZ(25_000_000)
     ) soc (
         .clk(clk_25mhz),

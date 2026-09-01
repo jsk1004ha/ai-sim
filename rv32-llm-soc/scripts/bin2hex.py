@@ -12,6 +12,11 @@ def main() -> None:
     parser.add_argument("binary", type=Path)
     parser.add_argument("hexfile", type=Path)
     parser.add_argument("--words", type=int, default=4096)
+    parser.add_argument(
+        "--lane-prefix",
+        type=Path,
+        help="write four byte-lane files as PREFIX0.hex through PREFIX3.hex",
+    )
     args = parser.parse_args()
 
     if args.words <= 0:
@@ -35,10 +40,25 @@ def main() -> None:
     args.hexfile.write_text(
         "".join(f"{word:08x}\n" for word in words), encoding="ascii"
     )
+
+    lane_files: list[Path] = []
+    if args.lane_prefix is not None:
+        args.lane_prefix.parent.mkdir(parents=True, exist_ok=True)
+        prefix = str(args.lane_prefix)
+        for lane in range(4):
+            lane_path = Path(f"{prefix}{lane}.hex")
+            lane_path.write_text(
+                "".join(f"{(word >> (8 * lane)) & 0xff:02x}\n" for word in words),
+                encoding="ascii",
+            )
+            lane_files.append(lane_path)
+
     print(
         f"wrote {len(words)} initialized words ({capacity} bytes), "
         f"firmware payload {len(payload)} bytes, to {args.hexfile}"
     )
+    for lane_path in lane_files:
+        print(f"wrote block-RAM byte lane {lane_path}")
 
 
 if __name__ == "__main__":
