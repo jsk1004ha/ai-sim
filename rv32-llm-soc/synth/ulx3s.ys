@@ -1,0 +1,5 @@
+read_verilog -sv third_party/picorv32.v rtl/mmio_llm_accel.sv rtl/uart_tx.sv rtl/rv32_llm_soc.sv rtl/ulx3s_top.sv
+hierarchy -check -top ulx3s_top
+synth_ecp5 -top ulx3s_top -json build/ulx3s.json
+stat -top ulx3s_top
+check -assert

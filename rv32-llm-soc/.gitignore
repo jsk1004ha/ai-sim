@@ -1,0 +1,5 @@
+build/*
+!build/.gitkeep
+third_party/picorv32.v
+third_party/PICORV32_LICENSE
+__pycache__/
