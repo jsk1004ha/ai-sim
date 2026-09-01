@@ -1,3 +1,4 @@
+`timescale 1ns/1ps
 `default_nettype none
 
 // Command-configured matrix-vector engine.
@@ -77,21 +78,35 @@ module gemv_engine #(
     reg signed [31:0] accumulator_q;
     reg signed [31:0] final_result_q;
 
+    // Select and sign-extend the weight before multiplication so INT8 and INT4
+    // modes share one physical multiplier bank. The first synthesized version
+    // placed a multiplier in each precision branch, doubling DSP use.
+    integer select_lane;
+    reg [LANES*8-1:0] selected_weight_bus;
+    always @* begin
+        selected_weight_bus = {(LANES*8){1'b0}};
+        for (select_lane = 0; select_lane < LANES; select_lane = select_lane + 1) begin
+            if (precision_int4_q) begin
+                selected_weight_bus[select_lane*8 +: 8] = {
+                    {4{w4_rd_data[(select_lane/2)*8 + (select_lane%2)*4 + 3]}},
+                    w4_rd_data[(select_lane/2)*8 + (select_lane%2)*4 +: 4]
+                };
+            end else begin
+                selected_weight_bus[select_lane*8 +: 8] =
+                    w8_rd_data[select_lane*8 +: 8];
+            end
+        end
+    end
+
     integer lane;
     reg signed [31:0] group_sum;
     always @* begin
         group_sum = 32'sd0;
         for (lane = 0; lane < LANES; lane = lane + 1) begin
             if ((k_offset_q + lane) < k_q) begin
-                if (precision_int4_q) begin
-                    group_sum = group_sum
-                        + $signed(act_rd_data[lane*8 +: 8])
-                        * $signed(w4_rd_data[(lane/2)*8 + (lane%2)*4 +: 4]);
-                end else begin
-                    group_sum = group_sum
-                        + $signed(act_rd_data[lane*8 +: 8])
-                        * $signed(w8_rd_data[lane*8 +: 8]);
-                end
+                group_sum = group_sum
+                    + $signed(act_rd_data[lane*8 +: 8])
+                    * $signed(selected_weight_bus[lane*8 +: 8]);
             end
         end
     end
