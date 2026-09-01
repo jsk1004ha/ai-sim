@@ -16,6 +16,8 @@
 #define ACC_W4(i)    MMIO32(ACCEL_BASE + 0x60u + 4u*(i))
 #define ACC_Y(i)     MMIO32(ACCEL_BASE + 0x80u + 4u*(i))
 
+extern int rv32i_selftest(void);
+
 static void uart_putc(char c) {
     while ((MMIO32(UART_STATUS) & 1u) == 0u) { }
     MMIO32(UART_DATA) = (uint8_t)c;
@@ -93,7 +95,16 @@ static int test_int4(void) {
 
 int main(void) {
     MMIO32(LED_REG) = 0x01u;
-    uart_puts("RV32 TinyLLM SoC boot\r\n");
+
+    int rcpu = rv32i_selftest();
+    if (rcpu != 0) {
+        MMIO32(LED_REG) = 0xC0u | ((uint32_t)rcpu & 0x0fu);
+        for (;;) { }
+    }
+
+    MMIO32(LED_REG) = 0x11u;
+    uart_puts("APZN-RV32I-MC1 boot\r\n");
+    uart_puts("CPU ISA SELFTEST PASS\r\n");
 
     int r8 = test_int8();
     if (r8 != 0) {
@@ -112,6 +123,6 @@ int main(void) {
     }
 
     MMIO32(LED_REG) = 0xA5u;
-    uart_puts("INT4 PASS - ALL TESTS PASS\r\n");
+    uart_puts("INT4 PASS - CPU CORE AND ACCELERATOR TESTS PASS\r\n");
     for (;;) { }
 }
