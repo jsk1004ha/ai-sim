@@ -1,0 +1,47 @@
+name: TinyLLM-D1 RTL verification
+
+on:
+  push:
+    branches:
+      - tinyllm-d1-hardware-20260901
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-and-synthesize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: tinyllm-d1-hardware
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install open-source HDL tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y iverilog yosys
+          iverilog -V | head -n 2
+          yosys -V
+
+      - name: Compile and run self-checking RTL simulation
+        run: make sim
+
+      - name: Generic Yosys synthesis
+        run: make synth
+
+      - name: Xilinx 7-series technology mapping
+        run: make synth-xilinx
+
+      - name: Upload real tool logs and netlists
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tinyllm-d1-hardware-evidence
+          path: |
+            tinyllm-d1-hardware/results/
+            tinyllm-d1-hardware/build/
+          if-no-files-found: warn
