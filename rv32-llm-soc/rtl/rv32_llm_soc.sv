@@ -31,8 +31,8 @@ module rv32_llm_soc #(
     wire [31:0] cpu_debug_pc;
     wire [31:0] cpu_debug_insn;
 
-    // Force the 16 KiB firmware/data store into ECP5 DP16KD block RAM rather
-    // than spending tens of thousands of LUTs on distributed memory.
+    // Synchronous read plus mutually exclusive byte writes matches the ECP5
+    // DP16KD inference template. Store responses intentionally do not read RAM.
     (* ram_style = "block" *) reg [31:0] memory [0:MEM_WORDS-1];
     reg [7:0] led_reg;
     reg uart_valid;
@@ -54,8 +54,6 @@ module rv32_llm_soc #(
         $readmemh(MEM_INIT_FILE, memory);
     end
 
-    // Project-owned CPU. PicoRV32 and every other external CPU core have been
-    // removed from this SoC integration.
     apzn_rv32i_core #(
         .RESET_PC(32'h0000_0000)
     ) cpu (
@@ -114,11 +112,14 @@ module rv32_llm_soc #(
             if (mem_valid && !mem_ready) begin
                 if (mem_addr < MEM_BYTES) begin
                     mem_ready <= 1'b1;
-                    mem_rdata <= memory[mem_addr[$clog2(MEM_BYTES)-1:2]];
-                    if (mem_wstrb[0]) memory[mem_addr[$clog2(MEM_BYTES)-1:2]][7:0]   <= mem_wdata[7:0];
-                    if (mem_wstrb[1]) memory[mem_addr[$clog2(MEM_BYTES)-1:2]][15:8]  <= mem_wdata[15:8];
-                    if (mem_wstrb[2]) memory[mem_addr[$clog2(MEM_BYTES)-1:2]][23:16] <= mem_wdata[23:16];
-                    if (mem_wstrb[3]) memory[mem_addr[$clog2(MEM_BYTES)-1:2]][31:24] <= mem_wdata[31:24];
+                    if (!(|mem_wstrb)) begin
+                        mem_rdata <= memory[mem_addr[$clog2(MEM_BYTES)-1:2]];
+                    end else begin
+                        if (mem_wstrb[0]) memory[mem_addr[$clog2(MEM_BYTES)-1:2]][7:0]   <= mem_wdata[7:0];
+                        if (mem_wstrb[1]) memory[mem_addr[$clog2(MEM_BYTES)-1:2]][15:8]  <= mem_wdata[15:8];
+                        if (mem_wstrb[2]) memory[mem_addr[$clog2(MEM_BYTES)-1:2]][23:16] <= mem_wdata[23:16];
+                        if (mem_wstrb[3]) memory[mem_addr[$clog2(MEM_BYTES)-1:2]][31:24] <= mem_wdata[31:24];
+                    end
                 end else if (accel_sel) begin
                     mem_ready <= 1'b1;
                     mem_rdata <= accel_rdata;
