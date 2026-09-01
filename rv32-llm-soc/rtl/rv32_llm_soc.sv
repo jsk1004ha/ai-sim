@@ -26,11 +26,10 @@ module rv32_llm_soc #(
     wire [3:0]  mem_wstrb;
     reg  [31:0] mem_rdata;
 
-    wire        mem_la_read;
-    wire        mem_la_write;
-    wire [31:0] mem_la_addr;
-    wire [31:0] mem_la_wdata;
-    wire [3:0]  mem_la_wstrb;
+    wire [31:0] cpu_cycle_count;
+    wire [31:0] cpu_retired_count;
+    wire [31:0] cpu_debug_pc;
+    wire [31:0] cpu_debug_insn;
 
     reg [31:0] memory [0:MEM_WORDS-1];
     reg [7:0] led_reg;
@@ -53,18 +52,10 @@ module rv32_llm_soc #(
         $readmemh(MEM_INIT_FILE, memory);
     end
 
-    picorv32 #(
-        .PROGADDR_RESET(32'h0000_0000),
-        .STACKADDR(MEM_BYTES),
-        .ENABLE_COUNTERS(1),
-        .ENABLE_COUNTERS64(0),
-        .ENABLE_REGS_DUALPORT(1),
-        .TWO_STAGE_SHIFT(1),
-        .BARREL_SHIFTER(0),
-        .COMPRESSED_ISA(0),
-        .ENABLE_MUL(0),
-        .ENABLE_DIV(0),
-        .ENABLE_IRQ(0)
+    // Project-owned CPU. PicoRV32 and every other external CPU core have been
+    // removed from this SoC integration.
+    apzn_rv32i_core #(
+        .RESET_PC(32'h0000_0000)
     ) cpu (
         .clk(clk),
         .resetn(resetn),
@@ -76,15 +67,10 @@ module rv32_llm_soc #(
         .mem_wdata(mem_wdata),
         .mem_wstrb(mem_wstrb),
         .mem_rdata(mem_rdata),
-        .mem_la_read(mem_la_read),
-        .mem_la_write(mem_la_write),
-        .mem_la_addr(mem_la_addr),
-        .mem_la_wdata(mem_la_wdata),
-        .mem_la_wstrb(mem_la_wstrb),
-        .pcpi_valid(), .pcpi_insn(), .pcpi_rs1(), .pcpi_rs2(),
-        .pcpi_wr(1'b0), .pcpi_rd(32'd0), .pcpi_wait(1'b0), .pcpi_ready(1'b0),
-        .irq(32'd0), .eoi(),
-        .trace_valid(), .trace_data()
+        .cycle_count(cpu_cycle_count),
+        .retired_count(cpu_retired_count),
+        .debug_pc(cpu_debug_pc),
+        .debug_insn(cpu_debug_insn)
     );
 
     mmio_llm_accel #(
